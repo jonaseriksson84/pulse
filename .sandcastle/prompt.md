@@ -43,7 +43,9 @@ Pick the highest-priority open issue that is not blocked by another open issue.
 - Work on **one issue per iteration**. Do not attempt multiple issues in a single iteration.
 - Do not close an issue until you have committed the fix and verified tests pass.
 - Do not leave commented-out code or TODO comments in committed code.
+- Do not add `Co-Authored-By` or any AI attribution to commit messages.
 - If you are blocked (missing context, failing tests you cannot fix, external dependency), leave a comment on the issue and move on — do not close it.
+- If `git push` fails due to authentication or permissions, do not attempt workarounds (HTTPS, API calls, etc.). Leave a comment on the issue explaining that the push failed due to token permissions, and output `<promise>COMPLETE</promise>` so the human can fix the token and re-run.
 
 # Done
 
