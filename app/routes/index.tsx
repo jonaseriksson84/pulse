@@ -10,11 +10,13 @@ import {
   Eye,
   MessageSquare,
   Bot,
+  Ticket,
   ChevronDown,
   ChevronUp,
 } from "lucide-react";
 import { fetchGitHubActivity } from "~/lib/github";
 import { readClaudeCodeActivity } from "~/lib/claude-code";
+import { fetchJiraActivity } from "~/lib/jira";
 import { readCache, writeCache, isCacheStale, invalidateCache } from "~/lib/cache";
 import {
   getWeekBounds,
@@ -130,11 +132,55 @@ const getClaudeCodeData = createServerFn({ method: "GET" })
     }
   });
 
+const getJiraData = createServerFn({ method: "GET" })
+  .inputValidator((data: { week?: string }) => data)
+  .handler(async ({ data }) => {
+    const targetDate = data.week
+      ? new Date(data.week + "T12:00:00")
+      : new Date();
+    const bounds = getWeekBounds(targetDate);
+    const weekKey = formatWeekKey(targetDate);
+
+    const baseUrl = process.env.JIRA_BASE_URL;
+    const email = process.env.JIRA_EMAIL;
+    const apiToken = process.env.JIRA_API_TOKEN;
+
+    if (!baseUrl || !email || !apiToken) {
+      return { items: [] as ActivityItem[], configured: false };
+    }
+
+    if (!isCacheStale("jira", weekKey)) {
+      const cached = readCache("jira", weekKey);
+      if (cached) {
+        return { items: cached, configured: true };
+      }
+    }
+
+    try {
+      const items = await fetchJiraActivity(
+        baseUrl,
+        email,
+        apiToken,
+        bounds.start,
+        bounds.end,
+      );
+      writeCache("jira", weekKey, items);
+      return { items, configured: true };
+    } catch {
+      return {
+        items: [] as ActivityItem[],
+        configured: true,
+        error: "Failed to fetch Jira data",
+      };
+    }
+  });
+
 const refreshData = createServerFn({ method: "POST" })
   .inputValidator((data: { week: string }) => data)
   .handler(async ({ data }) => {
     invalidateCache("github", data.week);
     invalidateCache("claude-code", data.week);
+    invalidateCache("jira", data.week);
   });
 
 // --- Route ---
@@ -145,18 +191,20 @@ export const Route = createFileRoute("/")({
   }),
   loaderDeps: ({ search }) => ({ week: search.week }),
   loader: async ({ deps }) => {
-    const [github, claudeCode] = await Promise.all([
+    const [github, claudeCode, jira] = await Promise.all([
       getGitHubData({ data: { week: deps.week } }),
       getClaudeCodeData({ data: { week: deps.week } }),
+      getJiraData({ data: { week: deps.week } }),
     ]);
     return {
-      items: [...github.items, ...claudeCode.items],
+      items: [...github.items, ...claudeCode.items, ...jira.items],
       weekKey: github.weekKey,
       weekStart: github.weekStart,
       weekEnd: github.weekEnd,
       sources: {
         github: { configured: github.configured, error: "error" in github ? (github.error as string) : undefined },
         claudeCode: { configured: claudeCode.configured, error: "error" in claudeCode ? (claudeCode.error as string) : undefined },
+        jira: { configured: jira.configured, error: "error" in jira ? (jira.error as string) : undefined },
       },
     };
   },
@@ -229,6 +277,7 @@ const activityIcons: Record<string, typeof GitCommit> = {
   "pr-review": Eye,
   "pr-comment": MessageSquare,
   "claude-session": Bot,
+  "jira-update": Ticket,
 };
 
 const activityLabels: Record<string, string> = {
@@ -238,6 +287,7 @@ const activityLabels: Record<string, string> = {
   "pr-review": "Review",
   "pr-comment": "Comment",
   "claude-session": "Claude Code",
+  "jira-update": "Jira",
 };
 
 // --- Components ---
@@ -428,6 +478,15 @@ function HomePage() {
           </CardContent>
         </Card>
       )}
+      {!data.sources.jira.configured && (
+        <Card className="mb-6 border-destructive">
+          <CardContent className="p-4 text-sm">
+            Jira is not configured. Set <code>JIRA_BASE_URL</code>,{" "}
+            <code>JIRA_EMAIL</code>, and <code>JIRA_API_TOKEN</code> in your{" "}
+            <code>.env</code> file.
+          </CardContent>
+        </Card>
+      )}
 
       {/* Errors */}
       {data.sources.github.error && (
@@ -441,6 +500,13 @@ function HomePage() {
         <Card className="mb-6 border-destructive">
           <CardContent className="p-4 text-sm text-destructive">
             {data.sources.claudeCode.error}
+          </CardContent>
+        </Card>
+      )}
+      {data.sources.jira.error && (
+        <Card className="mb-6 border-destructive">
+          <CardContent className="p-4 text-sm text-destructive">
+            {data.sources.jira.error}
           </CardContent>
         </Card>
       )}
