@@ -9,10 +9,12 @@ import {
   GitPullRequest,
   Eye,
   MessageSquare,
+  Bot,
   ChevronDown,
   ChevronUp,
 } from "lucide-react";
 import { fetchGitHubActivity } from "~/lib/github";
+import { readClaudeCodeActivity } from "~/lib/claude-code";
 import { readCache, writeCache, isCacheStale, invalidateCache } from "~/lib/cache";
 import {
   getWeekBounds,
@@ -89,10 +91,50 @@ const getGitHubData = createServerFn({ method: "GET" })
     }
   });
 
+const getClaudeCodeData = createServerFn({ method: "GET" })
+  .inputValidator((data: { week?: string }) => data)
+  .handler(async ({ data }) => {
+    const targetDate = data.week
+      ? new Date(data.week + "T12:00:00")
+      : new Date();
+    const bounds = getWeekBounds(targetDate);
+    const weekKey = formatWeekKey(targetDate);
+
+    const historyPath = process.env.CLAUDE_HISTORY_PATH;
+
+    if (!historyPath) {
+      return { items: [] as ActivityItem[], configured: false };
+    }
+
+    if (!isCacheStale("claude-code", weekKey)) {
+      const cached = readCache("claude-code", weekKey);
+      if (cached) {
+        return { items: cached, configured: true };
+      }
+    }
+
+    try {
+      const items = readClaudeCodeActivity(
+        historyPath,
+        bounds.start,
+        bounds.end,
+      );
+      writeCache("claude-code", weekKey, items);
+      return { items, configured: true };
+    } catch {
+      return {
+        items: [] as ActivityItem[],
+        configured: true,
+        error: "Failed to read Claude Code history",
+      };
+    }
+  });
+
 const refreshData = createServerFn({ method: "POST" })
   .inputValidator((data: { week: string }) => data)
   .handler(async ({ data }) => {
     invalidateCache("github", data.week);
+    invalidateCache("claude-code", data.week);
   });
 
 // --- Route ---
@@ -102,7 +144,22 @@ export const Route = createFileRoute("/")({
     week: typeof search.week === "string" ? search.week : undefined,
   }),
   loaderDeps: ({ search }) => ({ week: search.week }),
-  loader: ({ deps }) => getGitHubData({ data: { week: deps.week } }),
+  loader: async ({ deps }) => {
+    const [github, claudeCode] = await Promise.all([
+      getGitHubData({ data: { week: deps.week } }),
+      getClaudeCodeData({ data: { week: deps.week } }),
+    ]);
+    return {
+      items: [...github.items, ...claudeCode.items],
+      weekKey: github.weekKey,
+      weekStart: github.weekStart,
+      weekEnd: github.weekEnd,
+      sources: {
+        github: { configured: github.configured, error: "error" in github ? (github.error as string) : undefined },
+        claudeCode: { configured: claudeCode.configured, error: "error" in claudeCode ? (claudeCode.error as string) : undefined },
+      },
+    };
+  },
   component: HomePage,
 });
 
@@ -171,6 +228,7 @@ const activityIcons: Record<string, typeof GitCommit> = {
   "pr-merged": GitPullRequest,
   "pr-review": Eye,
   "pr-comment": MessageSquare,
+  "claude-session": Bot,
 };
 
 const activityLabels: Record<string, string> = {
@@ -179,6 +237,7 @@ const activityLabels: Record<string, string> = {
   "pr-merged": "PR merged",
   "pr-review": "Review",
   "pr-comment": "Comment",
+  "claude-session": "Claude Code",
 };
 
 // --- Components ---
@@ -351,8 +410,8 @@ function HomePage() {
         </div>
       </div>
 
-      {/* Not configured warning */}
-      {!data.configured && (
+      {/* Not configured warnings */}
+      {!data.sources.github.configured && (
         <Card className="mb-6 border-destructive">
           <CardContent className="p-4 text-sm">
             GitHub is not configured. Set <code>GITHUB_TOKEN</code> and{" "}
@@ -360,12 +419,28 @@ function HomePage() {
           </CardContent>
         </Card>
       )}
+      {!data.sources.claudeCode.configured && (
+        <Card className="mb-6 border-destructive">
+          <CardContent className="p-4 text-sm">
+            Claude Code is not configured. Set{" "}
+            <code>CLAUDE_HISTORY_PATH</code> in your <code>.env</code> file
+            (e.g. <code>~/.claude/projects</code>).
+          </CardContent>
+        </Card>
+      )}
 
-      {/* Error */}
-      {"error" in data && data.error && (
+      {/* Errors */}
+      {data.sources.github.error && (
         <Card className="mb-6 border-destructive">
           <CardContent className="p-4 text-sm text-destructive">
-            {data.error as string}
+            {data.sources.github.error}
+          </CardContent>
+        </Card>
+      )}
+      {data.sources.claudeCode.error && (
+        <Card className="mb-6 border-destructive">
+          <CardContent className="p-4 text-sm text-destructive">
+            {data.sources.claudeCode.error}
           </CardContent>
         </Card>
       )}
