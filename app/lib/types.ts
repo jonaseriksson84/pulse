@@ -23,5 +23,5 @@ export interface ActivityItem {
   timestamp: string; // ISO 8601
   title: string;
   description?: string;
-  metadata?: Record<string, unknown>;
+  metadata?: Record<string, string | number | boolean | null>;
 }
