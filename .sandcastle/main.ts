@@ -21,6 +21,7 @@ await run({
   // Each iteration works on a single issue. Increase this to process more issues
   // per run, or set it to 1 for a single-shot mode.
   maxIterations: 10,
+  idleTimeoutSeconds: 1200,
 
   // Copy node_modules from the host into the worktree before the sandbox
   // starts. This avoids a full npm install from scratch on every iteration.
