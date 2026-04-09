@@ -1,0 +1,53 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Environment variables - NEVER commit these
+.env
+.env.local
+.env.*.local
+.env.development
+.env.production
+*.env
+
+# OAuth tokens and credentials
+*.token
+*.credentials.json
+credentials/
+secrets/
+tokens/
+
+# Build outputs
+dist/
+build/
+.output/
+.vinxi/
+
+# Cache
+.cache/
+*.cache
+
+# TanStack Start / Vite
+.vite/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/settings.json
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Local data cache (app-generated, may contain private data)
+data/cache/
+*.db
+*.sqlite
